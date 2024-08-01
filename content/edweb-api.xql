@@ -1148,15 +1148,48 @@ declare function edwebapi:get-search-results(
  :
  :)
 declare function edwebapi:order-items(
-    $list as map(*)*, 
-    $order as xs:string?
+    $list as map(*)*,
+    $order as xs:string?,
+    $order-modifier as xs:string?
 ) as map(*)*
 {
-    if (not($order eq 'label'))
+    if (not($order = ('label', 'normalized')))
     then
-        for $item in $list
-        order by $item?filter?($order)
-        return $item
+        if ($order eq "date")
+        then
+            if (not($order-modifier = "descending")) then
+                for $item in $list
+                    let $order-by := $item?filter?($order)
+                    let $attributeOrder := map {
+                        "notAfter": 0,
+                        "when": 1,
+                        "notBefore": 2,
+                        "from": 3,
+                        "received": 4,
+                        "unknown": 5
+                    }
+                    let $order-by-datingAttribute := number($attributeOrder?($item?filter?datingAttribute))
+                    let $response-to := if ($item?filter?responseTo != "") then array:for-each($item?filter?responseTo, function($item) { $list?($item)?filter?date }) else []
+                    let $checkDates := array:filter($response-to, function($item) { $item = $order-by })
+                    let $order-by-response := if (array:size($checkDates) gt 0) then 1 else 0
+                order by
+                    $item?filter?($order),
+                    if ($order eq "date") then $order-by-datingAttribute else "",
+                    if ($order eq "date") then $order-by-response else ""
+                return $item
+            else
+                for $item in $list
+                order by $item?filter?($order) descending
+                return $item
+        else
+            if (not($order-modifier = "descending")) then
+                for $item in $list
+                order by $item?filter?($order)?1
+                return $item
+            else
+                for $item in $list
+                order by $item?filter?($order)?1 descending
+                return $item
     else
         let $long-list :=
             for $item in $list
@@ -1171,16 +1204,31 @@ declare function edwebapi:order-items(
                                 $item?filter,
                                 map:merge((
                                     for $fk in map:keys($item?label-filter) return
-                                        map:entry($fk, $item?label-filter?($fk)?*[$pos])
+                                        map:entry($fk, $item?label-filter?($fk)?($label))
                                 ))
                             ))
                         ),
                         map:entry("label-pos",$pos),
                         map:entry("label", $label)
                     )) 
-        for $item in $long-list
-        order by $item?label
-        return $item
+        return
+            if ($order eq "label") then
+                (if (not($order-modifier = "descending")) then
+                    for $item in $long-list
+                    order by $item?label
+                    return $item
+                else
+                    for $item in $long-list
+                    order by $item?label descending
+                    return $item)
+            else (if (not($order-modifier = "descending")) then
+                    for $item in $long-list
+                    order by $item?label-filter?($order)?($item?label)?1
+                    return $item
+                else
+                    for $item in $long-list
+                    order by $item?label-filter?($order)?($item?label)?1 descending
+                    return $item)
 };
 
 (:~
